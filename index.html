@@ -71,7 +71,8 @@ main.over::after{content:"";position:absolute;inset:10px;border:3px dashed var(-
 .seg{gap:4px;margin-top:6px;flex-wrap:nowrap}
 .seg button{flex:1;padding:5px 6px;white-space:nowrap}
 #fres button{display:block;width:100%;text-align:left;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#fstat:empty{display:none}
+#fstat:empty,#qstat:empty{display:none}
+#qlist .grp .nm span{white-space:nowrap}
 a{color:var(--accent)}
 #busy{position:absolute;right:10px;top:10px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;display:none}
 @media (max-width:700px){
@@ -99,6 +100,12 @@ a{color:var(--accent)}
     <div id="fstat" class="sub" style="margin-top:6px"></div>
     <div id="fres"></div>
     <div class="sub" style="margin-top:6px"><a href="#" id="relink">Change drive folder…</a></div>
+  </div>
+  <div class="sec">
+    <h2>Folders</h2>
+    <div id="qlist"></div>
+    <div class="row" style="margin-top:6px"><button type="button" id="qadd">+ Add folder…</button></div>
+    <div id="qstat" class="sub" style="margin-top:6px"></div>
   </div>
   <div class="sec">
     <div class="row">
@@ -721,18 +728,22 @@ function sortFilms(){
   films.sort(function(a,b){ return (gi[a.group]-gi[b.group]) || (b.underlay-a.underlay) || (a.order-b.order); });
 }
 function loadFiles(fs){
-  fs=[].slice.call(fs).filter(function(f){ return /\.(prt|ps)$/i.test(f.name); });
-  if(!fs.length) return;
+  // skip files already loaded (same name, size and date), so reopening a folder only adds new ones
+  function key(f){ return f.name+'|'+f.size+'|'+f.lastModified; }
+  var have={}; films.forEach(function(f){ if(f.fileKey) have[f.fileKey]=1; });
+  fs=[].slice.call(fs).filter(function(f){ return /\.(prt|ps)$/i.test(f.name) && !have[key(f)]; });
+  if(!fs.length) return 0;
   var busy=document.getElementById('busy'); busy.style.display='block';
   var firstNew=null;
-  function add(f){ films.push(f); if(!firstNew) firstNew=f; }
+  var curKey=null;
+  function add(f){ f.fileKey=curKey; films.push(f); if(!firstNew) firstNew=f; }
   (function next(i){
     if(i>=fs.length){
       busy.style.display='none'; sortFilms();
       if(firstNew){ selId=films.filter(function(f){return f.group===firstNew.group;})[0].id; renderList(); showInfo(); fit(); }
       return;
     }
-    busy.textContent='Decoding '+fs[i].name+'…';
+    busy.textContent='Decoding '+fs[i].name+'…'; curKey=key(fs[i]);
     fs[i].arrayBuffer().then(function(buf){
       setTimeout(function(){
         if(/\.ps$/i.test(fs[i].name)){
@@ -755,6 +766,7 @@ function loadFiles(fs){
       },20);
     });
   })(0);
+  return fs.length;
 }
 document.getElementById('file').onchange=function(e){ loadFiles(e.target.files); e.target.value=''; };
 document.getElementById('clear').onclick=function(){ films=[]; selId=null; renderList(); draw(); };
@@ -875,6 +887,46 @@ document.getElementById('relink').onclick=function(e){
   if(!window.showDirectoryPicker){ status('Searching needs Google Chrome or Microsoft Edge.'); return; }
   getRoot(loc,true).then(function(h){ status(LOCS[loc].label+' folder set to "'+h.name+'".'); }).catch(findErr);
 };
+
+// ---------- saved folders ----------
+// Folders a person adds here are kept in their own browser (IndexedDB), with the same
+// folder access as the drive search. Clicking one loads every .prt/.ps directly inside it.
+var qlistEl=document.getElementById('qlist'), qstat=document.getElementById('qstat'), quick=[];
+function qStatus(t){ qstat.textContent=t; }
+function renderQuick(){
+  qlistEl.innerHTML='';
+  if(!quick.length){ qlistEl.innerHTML='<div class="sub">Add a folder like ColorPrint\'s Ripped Files to load all its films in one click.</div>'; return; }
+  quick.forEach(function(q,k){
+    var row=document.createElement('div'); row.className='grp'; row.title='Load every .prt / .ps in "'+q.name+'"';
+    row.innerHTML='<div class="nm"><b></b><span>Click to load its .prt / .ps files</span></div><button class="x" title="Forget this folder">✕</button>';
+    row.querySelector('b').textContent=q.name;
+    row.onclick=function(){ openQuick(q).catch(function(e){ if(e&&e.name==='AbortError') return qStatus(''); qStatus(e&&e.name==='NotFoundError' ? '"'+q.name+'" can\'t be found. Is the drive connected? Remove it and add it again if it moved.' : (e&&e.message||String(e))); }); };
+    row.querySelector('.x').onclick=function(e){ e.stopPropagation(); quick.splice(k,1); hSet('quick',quick); renderQuick(); qStatus(''); };
+    qlistEl.appendChild(row);
+  });
+}
+async function openQuick(q){
+  var h=q.handle, p=await h.queryPermission({mode:'read'});
+  if(p!=='granted') p=await h.requestPermission({mode:'read'});
+  if(p!=='granted'){ qStatus('Access to "'+q.name+'" wasn\'t allowed.'); return; }
+  qStatus('Reading '+q.name+'…');
+  var hs=await filesIn(h,/\.(prt|ps)$/i,0,[]), files=[];
+  for(var i=0;i<hs.length;i++) files.push(await hs[i].getFile());
+  files.sort(function(a,b){ return a.name.localeCompare(b.name); });
+  if(!files.length){ qStatus('No .prt or .ps files in '+q.name+'.'); return; }
+  var n=loadFiles(files);
+  qStatus(n ? q.name+': loading '+n+' file'+(n>1?'s':'')+(n<files.length?' ('+(files.length-n)+' already loaded)':'')+'.' : q.name+': all '+files.length+' files are already loaded.');
+}
+document.getElementById('qadd').onclick=function(){
+  if(!window.showDirectoryPicker){ qStatus('Saved folders need Google Chrome or Microsoft Edge.'); return; }
+  window.showDirectoryPicker({id:'fv-quick', mode:'read'}).then(function(h){
+    return Promise.all(quick.map(function(q){ return q.handle.isSameEntry(h); })).then(function(same){
+      if(same.indexOf(true)>=0){ qStatus('"'+h.name+'" is already in the list.'); return; }
+      quick.push({name:h.name, handle:h}); hSet('quick',quick); renderQuick(); qStatus('Added "'+h.name+'". Click it to load its files.');
+    });
+  }).catch(function(e){ if(!(e&&e.name==='AbortError')) qStatus(e&&e.message||String(e)); });
+};
+hGet('quick').then(function(v){ quick=Array.isArray(v)?v:[]; renderQuick(); });
 render();
 </script>
 </body>
