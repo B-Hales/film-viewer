@@ -179,7 +179,7 @@ function decode(buf, name){
   for(var i=0;i<Math.min(u8.length,20000);i++){ if(u8[i]===69&&u8[i+1]===78&&u8[i+2]===84&&u8[i+3]===69&&u8[i+4]===82&&latin(u8,i,i+18)==='ENTER LANGUAGE=RTL'){ rtl=i; break; } }
   if(rtl<0) throw new Error('Not a PRT/RTL file');
   var pjl = parsePjl(latin(u8,0,rtl+18));
-  var p = rtl+18, W=0, H=0, comp=0, thumb=null, rows=[];
+  var p = rtl+18, W=0, H=0, comp=0, thumb=null, rows=[], cfg={};
   while(p<u8.length){
     if(u8[p]!==27){ p++; continue; }
     var c1=u8[p+1], c2=u8[p+2];
@@ -196,8 +196,8 @@ function decode(buf, name){
         else if(ch==='y'){ for(var z=0;z<n.v;z++) rows.push(null); }
       } else if(grp===114){ // r
         if(ch==='s') W=n.v; else if(ch==='t') H=n.v;
-      } else if(grp===103){ // g (config raster data)
-        if(ch==='w'){ p+=n.v; }
+      } else if(grp===103){ // g (config raster data): bytes 4-5 / 6-7 = x / y resolution
+        if(ch==='w'){ if(n.v>=8) cfg={x:(u8[p+4]<<8)|u8[p+5], y:(u8[p+6]<<8)|u8[p+7]}; p+=n.v; }
       }
       if(up) break;
     }
@@ -237,7 +237,6 @@ function decode(buf, name){
   var si = pjl.SCREENINFO||'';
   var chName = attr(si,'ChannelName').replace(/--$/,'').replace(/--/,' — ') || name;
   var color = /white/i.test(chName) ? '#ffffff' : cmykToHex(attr(si,'ChannelColor'));
-  var cfg = getRes(u8, rtl);
   var f = {
     id: nextId++, file:name, name:chName, color:color, ripColor:cmykToHex(attr(si,'ChannelColor')),
     order: parseInt(attr(si,'ChannelOrder'))||99, angle: attr(si,'AngleScreen'),
@@ -269,13 +268,6 @@ function decode(buf, name){
 function ctz8(v){ var n=0; while(!(v&1)&&n<8){v>>=1;n++;} return n; }
 function packbits(d,out){ var k=0,o=0,L=out.length; while(k<d.length&&o<L){ var n=d[k++]; if(n<128){ var c=n+1; out.set(d.subarray(k,k+c).subarray(0,L-o),o); o+=c; k+=c; } else if(n>128){ var c2=257-n, v=d[k++]; out.fill(v,o,Math.min(L,o+c2)); o+=c2; } } }
 function deltaRow(d,out){ var k=0,o=0; while(k<d.length){ var cmd=d[k++], cnt=(cmd>>5)+1, off=cmd&31; o+=off; if(off===31){ var e; do{ e=d[k++]; o+=e; }while(e===255); } for(var i=0;i<cnt&&k<d.length;i++) out[o++]=d[k++]; } }
-// ESC*g12W config raster: bytes 4-5 / 6-7 look like x/y resolution
-function getRes(u8, from){
-  for(var i=from;i<Math.min(u8.length,from+600000);i++){
-    if(u8[i]===27&&u8[i+1]===42&&u8[i+2]===103){ var n=readNum(u8,i+3); if(u8[n.p]===87&&n.v>=8){ var q=n.p+1; return {x:(u8[q+4]<<8)|u8[q+5], y:(u8[q+6]<<8)|u8[q+7]}; } }
-  }
-  return {};
-}
 // coverage pyramid: level k = (2^k)x box average of ink, 0..255
 var POP = new Uint8Array(256); for(var i=0;i<256;i++){ var c=0,v=i; while(v){c+=v&1;v>>=1;} POP[i]=c; }
 function buildLevels(f){
