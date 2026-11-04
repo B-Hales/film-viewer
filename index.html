@@ -42,14 +42,20 @@ button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .ch .nm span{color:var(--muted);font-size:11px}
 .ch .x{border:none;background:none;color:var(--muted);padding:2px 4px}
 .ch.loading{opacity:.5}
-.grp{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--muted);padding:8px 6px 2px;cursor:pointer}
-.grp span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.grp .x{border:none;background:none;color:var(--muted);padding:0 4px;font-size:12px}
+.grp{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.grp:hover{background:var(--hover)}
+.grp.cur{border-color:var(--accent)}
+.grp .nm{flex:1;min-width:0}
+.grp .nm b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grp .nm span{color:var(--muted);font-size:11px}
+.grp .dots{display:flex;gap:2px;flex:none}
+.grp .dots i{width:9px;height:9px;border-radius:50%;border:1px solid var(--line)}
+.grp .x{border:none;background:none;color:var(--muted);padding:2px 4px}
 .grp .x:hover{color:var(--ink)}
 .shirts{gap:4px;flex-wrap:nowrap}
 .shirts button{padding:5px 8px}
 .shirts input[type=color]{width:32px;height:26px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;flex:none}
-.grp.cur{color:var(--accent)}
+
 dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px}
 dt{color:var(--muted)} dd{margin:0;word-break:break-word}
 #thumb{max-width:100%;border:1px solid var(--line);border-radius:4px;background:#fff}
@@ -123,9 +129,13 @@ a{color:var(--accent)}
     </div>
   </div>
   <div class="sec">
-    <h2>Films <span id="cnt"></span></h2>
-    <div id="list"><div class="sub">None loaded</div></div>
-    <div class="sub" style="margin-top:6px">Composite shows the selected design, painted in list order (top = first down). Drag to reorder. Click a film for its info.</div>
+    <h2>Designs <span id="gcnt"></span></h2>
+    <div id="glist"><div class="sub">None loaded</div></div>
+  </div>
+  <div class="sec" id="colorsSec" hidden>
+    <h2>Colors <span id="cnt"></span></h2>
+    <div id="list"></div>
+    <div class="sub" style="margin-top:6px">The composite paints these in list order (top = first down). Drag to reorder. Click a color for its info.</div>
   </div>
   <div class="sec" id="info" hidden>
     <h2>Film info</h2>
@@ -629,44 +639,67 @@ cv.addEventListener('dblclick',fit);
 window.addEventListener('resize',draw);
 
 // ---------- UI ----------
-var listEl=document.getElementById('list');
+var listEl=document.getElementById('list'), glistEl=document.getElementById('glist');
 var dragIdx=null;
+function groupsInOrder(){ var seen={}, out=[]; films.forEach(function(f){ if(!seen[f.group]){ seen[f.group]=1; out.push(f.group); } }); return out; }
 function renderList(){
-  document.getElementById('cnt').textContent = films.length ? '('+films.length+')' : '';
+  var groups=groupsInOrder(), cg=curGroup();
+  document.getElementById('gcnt').textContent = groups.length ? '('+groups.length+')' : '';
   document.getElementById('drop').style.display = films.length ? 'none' : '';
-  if(!films.length){ listEl.innerHTML='<div class="sub">None loaded</div>'; document.getElementById('info').hidden=true; return; }
+  document.getElementById('colorsSec').hidden = !films.length;
+  if(!films.length){ glistEl.innerHTML='<div class="sub">None loaded</div>'; listEl.innerHTML=''; document.getElementById('info').hidden=true; return; }
+  // designs: one row per placement / .ps file / name drop
+  glistEl.innerHTML='';
+  groups.forEach(function(g){
+    var gf=films.filter(function(x){ return x.group===g; }), f0=gf[0];
+    var row=document.createElement('div'); row.className='grp'+(g===cg?' cur':''); row.title=f0.groupLabel;
+    row.innerHTML='<div class="nm"><b></b><span></span></div><div class="dots"></div><button class="x" title="Remove this design">✕</button>';
+    row.querySelector('b').textContent=f0.groupLabel;
+    row.querySelector('span').textContent=gf.length+' color'+(gf.length>1?'s':'')+' · '+(f0.gray?'.ps':'.prt');
+    var dots=row.querySelector('.dots'); gf.slice(0,8).forEach(function(x){ var i=document.createElement('i'); i.style.background=x.color; dots.appendChild(i); });
+    row.onclick=function(){ selectFilm(f0); };
+    row.querySelector('.x').onclick=function(e){
+      e.stopPropagation();
+      var wasCur=curGroup()===g;
+      films=films.filter(function(x){ return x.group!==g; });
+      if(wasCur||!films.some(function(x){ return x.id===selId; })) selId=films[0]?films[0].id:null;
+      renderList(); showInfo(); if(wasCur) fit(); else draw();
+    };
+    glistEl.appendChild(row);
+  });
+  // colors of the selected design
   listEl.innerHTML='';
-  var lastG=null, cg=curGroup();
+  var shownCount=0;
   films.forEach(function(f,i){
-    if(f.group!==lastG){
-      lastG=f.group;
-      var gh=document.createElement('div'); gh.className='grp'+(f.group===cg?' cur':''); gh.title=f.groupLabel;
-      gh.innerHTML='<span></span><button class="x" title="Remove this design">✕</button>';
-      gh.querySelector('span').textContent=f.groupLabel;
-      gh.onclick=function(){ selectFilm(f); };
-      gh.querySelector('.x').onclick=function(e){
-        e.stopPropagation();
-        var g=f.group, wasCur=curGroup()===g;
-        films=films.filter(function(x){ return x.group!==g; });
-        if(wasCur||!films.some(function(x){ return x.id===selId; })) selId=films[0]?films[0].id:null;
-        renderList(); showInfo(); if(wasCur) fit(); else draw();
-      };
-      listEl.appendChild(gh);
-    }
+    if(f.group!==cg) return;
+    shownCount++;
     var d=document.createElement('div'); d.className='ch'+(f.id===selId?' sel':''); d.draggable=true;
     d.innerHTML='<input type="checkbox" title="Show in composite"'+(f.visible?' checked':'')+'><input type="color" title="Ink color in composite" value="'+f.color+'"><div class="nm"><b></b><span></span></div><button class="x" title="Remove">✕</button>';
     d.querySelector('b').textContent=f.name;
     d.querySelector('span').textContent=f.sub;
     d.querySelector('input[type=checkbox]').onchange=function(e){ f.visible=e.target.checked; draw(); };
     d.querySelector('input[type=checkbox]').onclick=function(e){ e.stopPropagation(); };
-    d.querySelector('input[type=color]').oninput=function(e){ f.color=e.target.value; draw(); };
+    d.querySelector('input[type=color]').oninput=function(e){ f.color=e.target.value; draw(); renderDots(); };
     d.querySelector('input[type=color]').onclick=function(e){ e.stopPropagation(); };
-    d.querySelector('.x').onclick=function(e){ e.stopPropagation(); films.splice(films.indexOf(f),1); if(selId===f.id) selId=films[0]?films[0].id:null; renderList(); showInfo(); draw(); };
+    d.querySelector('.x').onclick=function(e){
+      e.stopPropagation(); films.splice(films.indexOf(f),1);
+      if(selId===f.id){ var same=films.filter(function(x){ return x.group===f.group; })[0]; selId=same?same.id:(films[0]?films[0].id:null); }
+      renderList(); showInfo(); draw();
+    };
     d.onclick=function(){ selectFilm(f); };
     d.ondragstart=function(){ dragIdx=i; };
     d.ondragover=function(e){ e.preventDefault(); };
     d.ondrop=function(e){ e.preventDefault(); e.stopPropagation(); if(dragIdx===null||dragIdx===i) return; var m=films.splice(dragIdx,1)[0]; films.splice(i,0,m); dragIdx=null; renderList(); draw(); };
     listEl.appendChild(d);
+  });
+  document.getElementById('cnt').textContent='('+shownCount+')';
+}
+// keep the design row's color dots in step while a color picker is dragged
+function renderDots(){
+  var groups=groupsInOrder();
+  [].forEach.call(glistEl.querySelectorAll('.grp'),function(row,k){
+    var gf=films.filter(function(x){ return x.group===groups[k]; });
+    [].forEach.call(row.querySelectorAll('.dots i'),function(dot,j){ if(gf[j]) dot.style.background=gf[j].color; });
   });
 }
 function selectFilm(f){
