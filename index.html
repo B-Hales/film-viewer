@@ -837,7 +837,7 @@ async function findDesign(k,d,root){
 async function filesIn(dir,re,depth,out){
   for await (const [n,h] of dir.entries()){
     if(h.kind==='file'&&re.test(n)&&n.charAt(0)!=='.') out.push(h);
-    else if(h.kind==='directory'&&depth>0) await filesIn(h,re,depth-1,out);
+    else if(h.kind==='directory'&&depth>0&&n.charAt(0)!=='_') await filesIn(h,re,depth-1,out);   // skip _Old (replaced films)
   }
   return out;
 }
