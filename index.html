@@ -52,6 +52,10 @@ button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .grp .dots i{width:9px;height:9px;border-radius:50%;border:1px solid var(--line)}
 .grp .x{border:none;background:none;color:var(--muted);padding:2px 4px}
 .grp .x:hover{color:var(--ink)}
+.grp.nd{margin-left:16px;padding:3px 8px}
+.grp.nd .nm b{font-weight:500}
+.grp.nd.on{background:var(--hover);border-color:var(--line)}
+.chhead{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin:8px 4px 2px}
 .shirts{gap:4px;flex-wrap:nowrap}
 .shirts button{padding:5px 8px}
 .shirts input[type=color]{width:32px;height:26px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;flex:none}
@@ -121,8 +125,8 @@ a{color:var(--accent)}
   <div class="sec">
     <h2>View</h2>
     <div class="row" style="margin-bottom:8px">
-      <button id="mComp" class="on">Composite</button>
-      <button id="mFilm">Single film</button>
+      <button id="mComp">Composite</button>
+      <button id="mFilm" class="on">Single film</button>
     </div>
     <div class="row" style="margin-bottom:8px">
       <button id="flip" class="on" title="Films are usually mirrored; flip to read right">Read right (unmirror)</button>
@@ -169,7 +173,7 @@ if(location.protocol==='file:' && !/[?&]local\b/.test(location.search)){
 // A .prt is PJL header + HP RTL: an embedded BMP thumbnail (ESC*n0P,<len>L)
 // followed by a 1-bit raster (ESC*r<w>S, ESC*r<h>T, ESC*b<mode>M, rows ESC*b<n>W).
 var films = [];
-var selId = null, mode = 'comp', flip = true, shirt = '#2b2b2e';
+var selId = null, mode = 'film', flip = true, shirt = '#2b2b2e';
 var nextId = 1;
 
 function latin(u8, a, b){ var s=''; for(var i=a;i<b;i++){ if(u8[i]) s+=String.fromCharCode(u8[i]); } return s; }
@@ -554,7 +558,14 @@ var cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 var view={cx:0,cy:0,scale:1}; // scale = source px per screen px; cx,cy page coords at centre
 var raf=0;
 function curGroup(){ var f=films.filter(function(x){return x.id===selId;})[0]||films[0]; return f?f.group:null; }
-function groupFilms(){ var g=curGroup(); return films.filter(function(f){return f.group===g;}); }
+// a placement holds the main colors (nd '') plus any name drop sets; name drops print in the same
+// spot, so the composite shows the main colors + ONE name drop at a time (activeNd[placement])
+var activeNd = {};
+// first film of a placement in list order (main colors before name drops)
+function firstOf(g){ var gf=films.filter(function(f){ return f.group===g; }); return gf.filter(function(f){ return !f.nd; })[0]||gf[0]; }
+function ndsOf(g){ var seen={}, out=[]; films.forEach(function(f){ if(f.group===g&&f.nd&&!seen[f.nd]){ seen[f.nd]=1; out.push(f.nd); } }); return out; }
+function curNd(g){ var nds=ndsOf(g); if(!nds.length) return ''; if(nds.indexOf(activeNd[g])<0) activeNd[g]=nds[0]; return activeNd[g]; }
+function groupFilms(){ var g=curGroup(), a=curNd(g); return films.filter(function(f){return f.group===g && (!f.nd || f.nd===a);}); }
 function shown(){ return mode==='film' ? films.filter(function(f){return f.id===selId;}) : groupFilms().filter(function(f){return f.visible;}); }
 function bounds(list){
   if(!list.length) return null;
@@ -661,10 +672,12 @@ function renderList(){
     var gf=films.filter(function(x){ return x.group===g; }), f0=gf[0];
     var row=document.createElement('div'); row.className='grp'+(g===cg?' cur':''); row.title=f0.groupLabel;
     row.innerHTML='<div class="nm"><b></b><span></span></div><div class="dots"></div><button class="x" title="Remove this design">✕</button>';
+    var nds=ndsOf(g), mainN=gf.filter(function(x){ return !x.nd; }).length;
     row.querySelector('b').textContent=f0.groupLabel;
-    row.querySelector('span').textContent=gf.length+' color'+(gf.length>1?'s':'')+' · '+(f0.gray?'.ps':'.prt');
-    var dots=row.querySelector('.dots'); gf.slice(0,8).forEach(function(x){ var i=document.createElement('i'); i.style.background=x.color; dots.appendChild(i); });
-    row.onclick=function(){ selectFilm(f0); };
+    row.querySelector('span').textContent=(mainN ? mainN+' color'+(mainN>1?'s':'') : 'no main colors')+
+      (nds.length ? ' + '+nds.length+' name drop'+(nds.length>1?'s':'') : '')+' · '+(f0.gray?'.ps':'.prt');
+    var dots=row.querySelector('.dots'); gf.filter(function(x){ return !x.nd; }).slice(0,8).forEach(function(x){ var i=document.createElement('i'); i.style.background=x.color; dots.appendChild(i); });
+    row.onclick=function(){ selectFilm(firstOf(g)); };
     row.querySelector('.x').onclick=function(e){
       e.stopPropagation();
       var wasCur=curGroup()===g;
@@ -673,13 +686,36 @@ function renderList(){
       renderList(); showInfo(); if(wasCur) fit(); else draw();
     };
     glistEl.appendChild(row);
+    // one sub row per name drop: click to show it with the main colors
+    var act=curNd(g);
+    nds.forEach(function(nd){
+      var nf=gf.filter(function(x){ return x.nd===nd; });
+      var r2=document.createElement('div'); r2.className='grp nd'+(g===cg&&nd===act?' on':''); r2.title=nf[0].setLabel;
+      r2.innerHTML='<div class="nm"><b></b><span></span></div><div class="dots"></div><button class="x" title="Remove this name drop">✕</button>';
+      r2.querySelector('b').textContent=nd;
+      r2.querySelector('span').textContent=nf.length+' color'+(nf.length>1?'s':'');
+      var d2=r2.querySelector('.dots'); nf.slice(0,8).forEach(function(x){ var i=document.createElement('i'); i.style.background=x.color; d2.appendChild(i); });
+      r2.onclick=function(){ activeNd[g]=nd; selectFilm(nf[0]); };
+      r2.querySelector('.x').onclick=function(e){
+        e.stopPropagation();
+        films=films.filter(function(x){ return !(x.group===g&&x.nd===nd); });
+        if(!films.some(function(x){ return x.id===selId; })) selId=(films.filter(function(x){ return x.group===g; })[0]||films[0]||{}).id||null;
+        renderList(); showInfo(); draw();
+      };
+      glistEl.appendChild(r2);
+    });
   });
   // colors of the selected design
   listEl.innerHTML='';
-  var shownCount=0;
-  films.forEach(function(f,i){
-    if(f.group!==cg) return;
+  // main colors first, then the active name drop's colors under a header (the composite still
+  // draws in films[] order: underlays first)
+  var shownCount=0, an=curNd(cg), headed=false, order=[];
+  films.forEach(function(f,i){ if(f.group===cg && !f.nd) order.push(i); });
+  films.forEach(function(f,i){ if(f.group===cg && f.nd && f.nd===an) order.push(i); });
+  order.forEach(function(i){
+    var f=films[i];
     shownCount++;
+    if(f.nd && !headed){ headed=true; var hd=document.createElement('div'); hd.className='chhead'; hd.textContent='Name drop: '+f.nd; listEl.appendChild(hd); }
     var d=document.createElement('div'); d.className='ch'+(f.id===selId?' sel':''); d.draggable=true;
     d.innerHTML='<input type="checkbox" title="Show in composite"'+(f.visible?' checked':'')+'><input type="color" title="Ink color in composite" value="'+f.color+'"><div class="nm"><b></b><span></span></div><button class="x" title="Remove">✕</button>';
     d.querySelector('b').textContent=f.name;
@@ -710,7 +746,7 @@ function renderDots(){
   });
 }
 function selectFilm(f){
-  var g0=curGroup(); selId=f.id; renderList(); showInfo();
+  var g0=curGroup(); selId=f.id; if(f.nd) activeNd[f.group]=f.nd; renderList(); showInfo();
   if(curGroup()!==g0) fit(); else draw();
 }
 function showInfo(){
@@ -722,10 +758,30 @@ function showInfo(){
   rows.forEach(function(r){ var dt=document.createElement('dt'),dd=document.createElement('dd'); dt.textContent=r[0]; dd.textContent=r[1]||'—'; dl.appendChild(dt); dl.appendChild(dd); });
   var t=document.getElementById('thumb'); if(f.thumb){ t.src=f.thumb; t.hidden=false; } else t.hidden=true;
 }
+// "W1530Y Front Setup - RED RIVER NEW MEXICO_279--Dk Sky Blue.prt" (ColorPrint),
+// "W1530Y Front + RED RIVER NEW MEXICO \u2014 279.prt" (Separations To Server), "BRENT ^ ... ^ Front ^ <file>",
+// "W1530Y Front Setup - RED RIVER NEW MEXICO.ps"  ->  placement "W1530Y Front", name drop "RED RIVER NEW MEXICO"
+function assignPlacement(f){
+  var n=String(f.file||'').replace(/\.(prt|ps)$/i,'');
+  if(n.indexOf('^')>=0) n=n.split('^').pop().replace(/^\s+/,'');
+  var place, nd='';
+  if(/\.prt$/i.test(f.file)){
+    if(n.indexOf('\u2014')>=0) n=n.slice(0,n.lastIndexOf('\u2014'));
+    else if(n.lastIndexOf('_')>0) n=n.slice(0,n.lastIndexOf('_'));
+  }
+  n=n.replace(/\s+$/,'');
+  var m=n.match(/^(.*?) (?:-|\+) (.+)$/);
+  if(m){ place=m[1]; nd=m[2].replace(/\s+$/,''); } else place=n;
+  place=place.replace(/ setup\b/ig,'').replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');
+  f.set=f.group; f.setLabel=n;
+  f.group='P:'+place.toUpperCase(); f.groupLabel=place||f.groupLabel;
+  f.nd=nd ? nd.replace(/\s+/g,' ').toUpperCase() : '';
+}
 function sortFilms(){
   // keep designs in load order; within one, underlays go down first, then channel/plate order
-  var gi={}; films.forEach(function(f,i){ if(!(f.group in gi)) gi[f.group]=i; });
-  films.sort(function(a,b){ return (gi[a.group]-gi[b.group]) || (b.underlay-a.underlay) || (a.order-b.order); });
+  // (placement, then underlays first, then main colors before the name drop, then plate order)
+  var gi={}, ni={}; films.forEach(function(f,i){ if(!(f.group in gi)) gi[f.group]=i; if(!(f.nd in ni)) ni[f.nd]=i; });
+  films.sort(function(a,b){ return (gi[a.group]-gi[b.group]) || (b.underlay-a.underlay) || ((a.nd?1:0)-(b.nd?1:0)) || (ni[a.nd]-ni[b.nd]) || (a.order-b.order); });
 }
 function loadFiles(fs){
   // skip files already loaded (same name, size and date), so reopening a folder only adds new ones
@@ -736,11 +792,11 @@ function loadFiles(fs){
   var busy=document.getElementById('busy'); busy.style.display='block';
   var firstNew=null;
   var curKey=null;
-  function add(f){ f.fileKey=curKey; films.push(f); if(!firstNew) firstNew=f; }
+  function add(f){ f.fileKey=curKey; assignPlacement(f); films.push(f); if(!firstNew) firstNew=f; }
   (function next(i){
     if(i>=fs.length){
       busy.style.display='none'; sortFilms();
-      if(firstNew){ selId=films.filter(function(f){return f.group===firstNew.group;})[0].id; renderList(); showInfo(); fit(); }
+      if(firstNew){ selId=firstOf(firstNew.group).id; renderList(); showInfo(); fit(); }
       return;
     }
     busy.textContent='Decoding '+fs[i].name+'…'; curKey=key(fs[i]);
