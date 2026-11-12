@@ -987,16 +987,20 @@ document.getElementById('qadd').onclick=function(){
 };
 // ---------- appearance ----------
 // Auto follows the Mac's light/dark setting; Light/Dark override it (kept per browser).
-var THEMES=['auto','light','dark'], theme='auto';
+// Inside the PRT Rip review window the app keeps the choice instead (window.PRTRIP_THEME in, message out).
+var THEMES=['auto','light','dark'], theme='auto', prtripHost=null;
+try{ prtripHost=window.webkit.messageHandlers.prtrip; }catch(e){}
 try{ var tv=localStorage.getItem('fvTheme'); if(THEMES.indexOf(tv)>=0) theme=tv; }catch(e){}
-function setTheme(t){
+if(THEMES.indexOf(window.PRTRIP_THEME)>=0) theme=window.PRTRIP_THEME;
+function setTheme(t,save){
   theme=t;
   if(t==='auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme',t);
   try{ localStorage.setItem('fvTheme',t); }catch(e){}
+  if(save && prtripHost) try{ prtripHost.postMessage({theme:t}); }catch(e){}
   document.getElementById('theme').textContent=t.charAt(0).toUpperCase()+t.slice(1);
   draw();
 }
-document.getElementById('theme').onclick=function(){ setTheme(THEMES[(THEMES.indexOf(theme)+1)%THEMES.length]); };
+document.getElementById('theme').onclick=function(){ setTheme(THEMES[(THEMES.indexOf(theme)+1)%THEMES.length],true); };
 try{ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw); }catch(e){}
 setTheme(theme);
 hGet('quick').then(function(v){ quick=Array.isArray(v)?v:[]; renderQuick(); });
