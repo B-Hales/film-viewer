@@ -25,6 +25,8 @@ body{background:var(--bg);color:var(--ink);font:13px/1.4 -apple-system,BlinkMacS
 aside{width:300px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:auto}
 aside header{padding:14px 16px;border-bottom:1px solid var(--line)}
 aside h1{font-size:15px;margin:0 0 2px}
+aside header{position:relative}
+#theme{position:absolute;right:12px;top:12px;font-size:11px;padding:3px 8px}
 .sub{color:var(--muted);font-size:12px}
 .sec{padding:12px 16px;border-bottom:1px solid var(--line)}
 .sec h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px}
@@ -88,6 +90,7 @@ a{color:var(--accent)}
 <body>
 <aside>
   <header>
+    <button id="theme" type="button" title="Switch light / dark appearance">Auto</button>
     <h1>Film Viewer</h1>
     <div class="sub">ColorPrint .prt films · Illustrator .ps seps</div>
   </header>
@@ -982,6 +985,20 @@ document.getElementById('qadd').onclick=function(){
     });
   }).catch(function(e){ if(!(e&&e.name==='AbortError')) qStatus(e&&e.message||String(e)); });
 };
+// ---------- appearance ----------
+// Auto follows the Mac's light/dark setting; Light/Dark override it (kept per browser).
+var THEMES=['auto','light','dark'], theme='auto';
+try{ var tv=localStorage.getItem('fvTheme'); if(THEMES.indexOf(tv)>=0) theme=tv; }catch(e){}
+function setTheme(t){
+  theme=t;
+  if(t==='auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme',t);
+  try{ localStorage.setItem('fvTheme',t); }catch(e){}
+  document.getElementById('theme').textContent=t.charAt(0).toUpperCase()+t.slice(1);
+  draw();
+}
+document.getElementById('theme').onclick=function(){ setTheme(THEMES[(THEMES.indexOf(theme)+1)%THEMES.length]); };
+try{ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw); }catch(e){}
+setTheme(theme);
 hGet('quick').then(function(v){ quick=Array.isArray(v)?v:[]; renderQuick(); });
 render();
 </script>
